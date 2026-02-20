@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/statsTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Всего: 0\nНайдено: 0\nОсталось: 0"
+        android:textSize="18sp"
+        android:background="#f0f0f0"
+        android:padding="8dp"
+        android:layout_marginBottom="16dp"/>
+
+    <Button
+        android:id="@+id/button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Сброс данных"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/importButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Импорт из файла"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/listButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Список предметов"
+        android:layout_marginBottom="8dp"/>
+
+    <Button
+        android:id="@+id/scanButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Сканировать QR"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- ИСПРАВЛЕННАЯ кнопка для LinearLayout -->
+    <Button
+        android:id="@+id/scannedListButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📋 Список найденного"
+        android:textSize="16sp"
+        android:padding="12dp"
+        android:layout_marginTop="8dp"/>
+
+</LinearLayout>
