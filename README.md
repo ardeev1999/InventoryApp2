@@ -1,5 +1,7 @@
 # Inventory App
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Мобильное приложение для инвентаризации техники и мебели. 
 Позволяет импортировать данные из Excel, сканировать QR-коды и штрих-коды, отслеживать статус предметов.
 
@@ -20,7 +22,6 @@
 1. Склонируйте репозиторий:
 git clone https://github.com/ardeev1999/inventoryApp2
 
-text
 2. Откройте проект в Android Studio.
 3. Соберите и запустите на устройстве или эмуляторе.
 
