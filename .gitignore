@@ -13,3 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Папка с настройками IDE
+.idea/
+# Временные папки Kotlin
+.kotlin/
+# Исключить все логи и текстовые отчёты в корне
+*.txt
