@@ -6,6 +6,50 @@ import java.util.Date
 
 @Dao
 interface InventoryDao {
+    @Query("SELECT * FROM items WHERE inventoryNumber = :code OR qrData = :code")
+    suspend fun getItemsByCode(code: String): List<InventoryItem>
+
+    @Query("UPDATE items SET qrData = :code WHERE inventoryNumber = :number")
+    suspend fun updateCode(number: String, code: String)
+
+    @Transaction
+    suspend fun bindCode(number: String, code: String) {
+        require(code.isNotEmpty()) { "Пустой код нельзя привязать" }
+        require(getItemByNumber(number) != null) { "Предмет больше не существует" }
+        require(getItemsByCode(code).all { it.inventoryNumber == number }) {
+            "Этот код уже относится к другому предмету"
+        }
+        updateCode(number, code)
+        updateScanStatus(number, true, Date())
+    }
+
+    @Transaction
+    suspend fun importInventory(items: List<InventoryItem>, replaceExisting: Boolean) {
+        require(items.isNotEmpty()) { "Файл не содержит предметов" }
+        val previous = getAllItemsSync().associateBy { it.inventoryNumber }
+        val incomingNumbers = items.map { it.inventoryNumber }.toSet()
+        val merged = items.map { item ->
+            val old = previous[item.inventoryNumber]
+            // Привязка не должна перекрывать инвентарный номер нового предмета.
+            require(old == null || old.qrData == item.inventoryNumber || old.qrData !in incomingNumbers) {
+                "Код ${old?.qrData} уже привязан к ${item.inventoryNumber}, но в файле это номер другого предмета"
+            }
+            if (old == null) item else item.copy(
+                qrData = old.qrData.ifEmpty { item.inventoryNumber },
+                scanned = old.scanned, scanTimestamp = old.scanTimestamp,
+                department = old.department, comment = old.comment
+            )
+        }
+        if (!replaceExisting) {
+            for (item in items) {
+                require(previous.values.none {
+                    it.inventoryNumber != item.inventoryNumber && it.qrData == item.inventoryNumber
+                }) { "Номер ${item.inventoryNumber} уже используется как штрихкод другого предмета" }
+            }
+        }
+        if (replaceExisting) deleteAll()
+        insertAll(merged)
+    }
     
     // === CRUD операции ===
     @Insert(onConflict = OnConflictStrategy.REPLACE)

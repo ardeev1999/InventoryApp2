@@ -64,94 +64,76 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
     /**
      * Основной метод импорта файлов
      */
+    private val _pendingImport = MutableLiveData<StatementParser.Result?>()
+    val pendingImport: LiveData<StatementParser.Result?> = _pendingImport
+    private var importBusy = false
+
     fun importFile(uri: Uri, fileName: String) {
+        if (importBusy || _pendingImport.value != null) return
+        importBusy = true
         viewModelScope.launch {
             try {
-                _importStatus.value = "Импорт файла..."
-                
-                // Сначала дебагим файл (выводим структуру в логи)
-                excelImporter.debugFile(uri)
-                
-                // Затем импортируем данные
-                val items = if (excelImporter.isExcelFile(fileName)) {
+                _importStatus.value = "Чтение ведомости..."
+                val result = if (excelImporter.isExcelFile(fileName)) {
                     excelImporter.importFromExcel(uri)
                 } else {
-                    csvImporter.importFrom1C(uri)
+                    StatementParser.Result(csvImporter.importFrom1C(uri), emptyList(), "CSV")
                 }
-                
-                if (items.isEmpty()) {
-                    _importStatus.value = "Ошибка: Не найдено данных для импорта"
-                    return@launch
+                if (result.items.isEmpty()) {
+                    _importStatus.value = "Не найдено данных для импорта. " + result.warnings.take(3).joinToString("\n")
+                } else {
+                    _pendingImport.value = result
                 }
-                
-                // Сохраняем в базу
-                saveImportedItems(items)
-                
-                _importStatus.value = "Успешно импортировано ${items.size} записей"
-                
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e("Import", "Ошибка импорта: ${e.message}", e)
                 _importStatus.value = "Ошибка импорта: ${e.message}"
+            } finally {
+                importBusy = false
             }
         }
     }
-    
-    /**
-     * Метод для отладки импорта (показывает содержимое файла)
-     */
-    fun debugImportFile(uri: Uri, fileName: String) {
-        viewModelScope.launch {
-            _importStatus.value = "Отладка импорта файла: $fileName..."
-            Log.d("InventoryViewModel", "=== НАЧАЛО ОТЛАДКИ ИМПОРТА ===")
-            
-            // Сначала запускаем отладку
-            if (excelImporter.isExcelFile(fileName)) {
-                Log.d("InventoryViewModel", "Файл определен как Excel")
-                excelImporter.debugFile(uri)
-            } else {
-                Log.d("InventoryViewModel", "Файл определен как CSV")
-            }
-            
-            Log.d("InventoryViewModel", "=== ЗАВЕРШЕНИЕ ОТЛАДКИ ===")
-            
-            // Затем выполняем обычный импорт
-            importFile(uri, fileName)
-        }
-    }
-    
-    /**
-     * Сохранение импортированных данных в базу
-     */
-    private fun saveImportedItems(items: List<InventoryItem>) {
+
+    fun cancelPendingImport() { _pendingImport.value = null }
+
+    fun confirmPendingImport(replaceExisting: Boolean) {
+        val result = _pendingImport.value ?: return
+        if (importBusy) return
+        _pendingImport.value = null
+        importBusy = true
         viewModelScope.launch {
             try {
-                // 1. Сохраняем в базу
-                inventoryDao.insertAll(items)
-                
-                // 2. Правильно считаем статистику
-                val total = items.size
-                val found = items.count { it.scanned } // Будет 0 для новых импортов
-                val remaining = total - found
-                
-                // 3. Обновляем статистику
-                _stats.value = InventoryStats(
-                    total = total,
-                    found = found,      // 0 для новых импортов
-                    remaining = remaining // равно total
-                )
-                
-                // 4. Уведомляем
-                _importStatus.value = "Успешно импортировано ${items.size} записей"
-                
-                Log.d("InventoryViewModel", "Импортировано $total записей")
-                
+                saveImportedItems(result.items, replaceExisting)
+                _importStatus.value = "Импортировано ${result.items.size} предметов. Пропущено проблемных строк: ${result.warnings.size}"
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _importStatus.value = "Ошибка сохранения: ${e.message}"
-                Log.e("InventoryViewModel", "Ошибка сохранения: ${e.message}", e)
+            } finally {
+                importBusy = false
             }
         }
     }
-    
+
+    private suspend fun saveImportedItems(items: List<InventoryItem>, replaceExisting: Boolean) {
+        inventoryDao.importInventory(items, replaceExisting)
+        _stats.value = InventoryStats(
+            total = inventoryDao.getTotalCount(),
+            found = inventoryDao.getScannedCount(),
+            remaining = inventoryDao.getRemainingCount()
+        )
+        _importedItems.value = items
+    }
+
+    suspend fun getItemsByCode(code: String): List<InventoryItem> = inventoryDao.getItemsByCode(code)
+
+    suspend fun bindingCandidates(): List<InventoryItem> = inventoryDao.getAllItemsSync()
+
+    suspend fun bindCode(number: String, code: String) {
+        inventoryDao.bindCode(number, code)
+        updateStats()
+    }
+
     /**
      * Ручной импорт списка элементов (старый метод, оставлен для совместимости)
      */
@@ -188,31 +170,16 @@ class InventoryViewModel(application: Application) : AndroidViewModel(applicatio
      * Пометка предмета как отсканированного
      */
     suspend fun markAsScanned(inventoryNumber: String, department: String? = null) {
-        try {
-            val item = inventoryDao.getItemByNumber(inventoryNumber)
-            item?.let {
-                // Если указан отдел - обновляем
-                if (!department.isNullOrBlank()) {
-                    val updatedItem = it.copy(
-                        department = department,
-                        scanned = true,
-                        scanTimestamp = Date()
-                    )
-                    inventoryDao.insertItem(updatedItem)
-                    Log.d("InventoryViewModel", "Предмет $inventoryNumber отмечен как отсканированный с отделом: $department")
-                } else {
-                    inventoryDao.updateScanStatus(inventoryNumber, true, Date())
-                    Log.d("InventoryViewModel", "Предмет $inventoryNumber отмечен как отсканированный")
-                }
-                updateStats()
-            } ?: run {
-                Log.w("InventoryViewModel", "Предмет с номером $inventoryNumber не найден")
-            }
-        } catch (e: Exception) {
-            Log.e("InventoryViewModel", "Ошибка при отметке как отсканированного: ${e.message}")
+        val item = inventoryDao.getItemByNumber(inventoryNumber)
+            ?: error("Предмет больше не существует")
+        if (!department.isNullOrBlank()) {
+            inventoryDao.insertItem(item.copy(department = department, scanned = true, scanTimestamp = Date()))
+        } else {
+            inventoryDao.updateScanStatus(inventoryNumber, true, Date())
         }
+        updateStats()
     }
-    
+
     /**
      * Сброс статуса сканирования для предмета
      */

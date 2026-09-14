@@ -72,6 +72,23 @@ class MainActivity : AppCompatActivity() {
             updateStats(stats)
         }
         
+        viewModel.pendingImport.observe(this) { result ->
+            if (result != null) {
+                val warnings = if (result.warnings.isEmpty()) "" else
+                    "\n\nНе будут импортированы ${result.warnings.size} строк:\n" +
+                        result.warnings.take(10).joinToString("\n\n") +
+                        if (result.warnings.size > 10) "\n…и ещё ${result.warnings.size - 10}" else ""
+                AlertDialog.Builder(this)
+                    .setTitle("Найдено предметов: ${result.items.size}")
+                    .setMessage("Лист: ${result.sheetName}\n\nОбновить и добавить предметы или заменить весь список? При замене удаляются предметы, отсутствующие среди импортируемых записей, включая пропущенные проблемные строки. Для совпавших номеров сохраняются отметки и привязки.$warnings")
+                    .setPositiveButton("Обновить / добавить") { _, _ -> viewModel.confirmPendingImport(false) }
+                    .setNeutralButton("Заменить список") { _, _ -> viewModel.confirmPendingImport(true) }
+                    .setNegativeButton("Отмена") { _, _ -> viewModel.cancelPendingImport() }
+                    .setOnCancelListener { viewModel.cancelPendingImport() }
+                    .show()
+            }
+        }
+
         // Наблюдение за статусом импорта
         viewModel.importStatus.observe(this) { status ->
             Log.d(TAG, "Статус импорта: $status")
@@ -178,7 +195,7 @@ class MainActivity : AppCompatActivity() {
             📋 ИНСТРУКЦИЯ:
             
             1. Нажмите "Импорт" для загрузки Excel файла
-            2. Выберите файл inventari_ful_test.xlsx
+            2. Выберите ведомость 1С (.xls или .xlsx)
             3. Данные появятся в статистике
             4. Используйте "Сканировать" для инвентаризации
             
@@ -210,8 +227,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     REQUEST_CODE_PICK_EXCEL -> {
                         Log.d(TAG, "=== ИМПОРТ EXCEL ===")
-                        // ★★★★ ВРЕМЕННО: ДЛЯ ОТЛАДКИ ★★★★
-                        viewModel.debugImportFile(uri, fileName)
+                        viewModel.importFile(uri, fileName)
                     }
                     else -> {
                         Log.w(TAG, "Неизвестный requestCode: $requestCode")
