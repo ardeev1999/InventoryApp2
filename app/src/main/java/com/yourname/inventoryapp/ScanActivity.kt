@@ -15,8 +15,9 @@ class ScanActivity : AppCompatActivity() {
     private lateinit var viewModel: InventoryViewModel
     
     private val barcodeLauncher = registerForActivityResult(ScanContract()) { result ->
-        if (result.contents != null) {
-            val scannedCode = result.contents.trim()
+        // Инвентарный номер — строка: сохраняем все закодированные символы.
+        val scannedCode = result.contents
+        if (scannedCode != null) {
             processScannedCode(scannedCode)
         } else {
             finish()
@@ -36,7 +37,10 @@ class ScanActivity : AppCompatActivity() {
     
     private fun startScanner() {
         val options = ScanOptions().apply {
-            setDesiredBarcodeFormats(ScanOptions.QR_CODE, ScanOptions.CODE_128)
+            setDesiredBarcodeFormats(BarcodeScanConfig.formats.map { it.name })
+            BarcodeScanConfig.hints.forEach { (hint, value) ->
+                addExtra(hint.name, value)
+            }
             setPrompt("Наведите на QR-код или штрих-код")
             setCameraId(0)
             setBeepEnabled(true)
