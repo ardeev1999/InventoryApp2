@@ -14,7 +14,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.InventoryApp">
-        
+
         <!-- Главная активность -->
         <activity
             android:name=".MainActivity"
@@ -26,26 +26,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        
+
         <!-- Активность со списком предметов -->
         <activity
             android:name=".ItemsListActivity"
             android:exported="false"
             android:label="Список предметов"
             android:theme="@style/Theme.InventoryApp" />
-        
+
         <!-- Активность сканирования (ДОБАВЬТЕ ЭТОТ БЛОК ОТДЕЛЬНО) -->
         <activity
             android:name=".ScanActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
 
-        <!-- НОВАЯ АКТИВНОСТЬ -->
-        <activity
-            android:name=".ScannedItemsActivity"
-            android:label="Найденные предметы"
-            android:parentActivityName=".MainActivity" />   
-            
+
     </application>
 
 </manifest>

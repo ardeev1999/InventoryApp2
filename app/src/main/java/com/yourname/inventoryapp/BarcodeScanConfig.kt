@@ -18,7 +18,6 @@ internal object BarcodeScanConfig {
         BarcodeFormat.ITF,
         BarcodeFormat.EAN_8,
         BarcodeFormat.EAN_13,
-        BarcodeFormat.UPC_A,
         BarcodeFormat.UPC_E,
         BarcodeFormat.RSS_14,
         BarcodeFormat.RSS_EXPANDED

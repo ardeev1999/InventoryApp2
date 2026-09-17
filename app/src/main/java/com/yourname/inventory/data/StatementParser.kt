@@ -4,15 +4,12 @@ import org.apache.poi.ss.usermodel.*
 import java.math.BigDecimal
 import java.util.Locale
 
-/** Читает один реестр, а не складывает повторяющие его листы одной книги. */
 class StatementParser {
-    data class Result(val items: List<InventoryItem>, val warnings: List<String>, val sheetName: String)
-    private val formatter = DataFormatter(Locale.US).apply {
-        setUseCachedValuesForFormulaCells(true)
-    }
-
-    private data class Columns(val name: Int, val number: Int, val firstRow: Int = 0)
-
+    data class Result(val items: List<InventoryItem>, val warnings: List<String>, val sheetName: String,
+        val skippedWithoutBarcode: Int = 0, val withoutInventoryNumber: Int = 0,
+        val duplicateRows: Int = 0)
+    private val formatter = DataFormatter(Locale.US).apply { setUseCachedValuesForFormulaCells(true) }
+    private data class Columns(val name: Int, val number: Int, val barcode: Int, val firstRow: Int)
     fun parse(workbook: Workbook): List<InventoryItem> = parseReport(workbook).items
 
     fun parseReport(workbook: Workbook): Result {
@@ -20,61 +17,59 @@ class StatementParser {
             val columns = detectColumns(sheet) ?: continue
             val items = linkedMapOf<String, InventoryItem>()
             val warnings = mutableListOf<String>()
+            var skipped = 0
+            var duplicates = 0
             for (index in columns.firstRow..sheet.lastRowNum) {
                 val row = sheet.getRow(index) ?: continue
                 val name = text(row.getCell(columns.name))
                 val numberCell = row.getCell(columns.number)
-                if (!isItem(name, text(numberCell))) continue
-                val number = try {
-                    identifier(numberCell!!)
+                val barcodeCell = row.getCell(columns.barcode)
+                if (name.isEmpty() && text(numberCell).isEmpty() && text(barcodeCell).isEmpty()) continue
+                if (text(barcodeCell).isEmpty()) { skipped++; continue }
+                if (name.isEmpty()) { warnings.add("Строка ${index + 1}: нет названия"); continue }
+                try {
+                    val barcode = identifier(barcodeCell!!)
+                    val number = if (text(numberCell).isEmpty()) "" else identifier(numberCell!!)
+                    val item = InventoryItem(barcode = barcode, name = name, inventoryNumber = number)
+                    val previous = items[barcode]
+                    // Нельзя молча выбрать предмет при конфликте ключа.
+                    check(previous == null || previous == item) {
+                        "Лист '${sheet.sheetName}', строка ${index + 1}: один штрихкод у разных предметов. Исправьте файл."
+                    }
+                    if (previous != null) duplicates++ else items[barcode] = item
                 } catch (e: IllegalArgumentException) {
-                    warnings.add("$name: ${e.message}")
-                    continue
+                    warnings.add("Строка ${index + 1}: ${e.message}")
                 }
-                val previous = items[number]
-                require(previous == null || previous.name == name) {
-                    "Лист '${sheet.sheetName}', строка ${index + 1}: номер $number повторяется у разных предметов"
-                }
-                items[number] = InventoryItem(inventoryNumber = number, name = name, qrData = number)
             }
-            if (items.isNotEmpty() || warnings.isNotEmpty()) return Result(items.values.toList(), warnings, sheet.sheetName)
+            return Result(items.values.toList(), warnings, sheet.sheetName, skipped,
+                items.values.count { it.inventoryNumber.isEmpty() }, duplicates)
         }
-        error("Не найдена таблица предметов. Поддерживаются ведомость 1С (C/J), список A/B или A/H и таблица с заголовками 'Основное средство' и 'Инвентарный номер'.")
+        error("Нужны заголовки: 'Основное средство' (или 'Наименование' / 'Название'), 'Инвентарный номер', 'Штрихкод'.")
     }
 
     private fun detectColumns(sheet: Sheet): Columns? {
-        // Заголовки могут находиться после названия отчёта и строк группировки.
         for (row in sheet) {
-            val values = row.associate { it.columnIndex to text(it).lowercase().replace(Regex("\\s+"), " ") }
-            val name = values.entries.firstOrNull {
-                it.value == "основное средство" || it.value == "наименование"
-            }?.key
+            val values = row.associate { it.columnIndex to text(it).lowercase(Locale.ROOT).replace(Regex("\\s+"), " ") }
+            val name = values.entries.firstOrNull { it.value in listOf("основное средство", "наименование", "название", "название позиции") }?.key
             val number = values.entries.firstOrNull { it.value == "инвентарный номер" }?.key
-            if (name != null && number != null) return Columns(name, number, row.rowNum + 1)
+            val barcode = values.entries.firstOrNull { it.value == "штрихкод" }?.key
+            if (name != null && number != null && barcode != null) return Columns(name, number, barcode, row.rowNum + 1)
         }
-        // Только известные схемы. Колонка A с порядковым номером не участвует
-        // в выборе номера ведомости: для C/J номер всегда берётся из J.
-        return listOf(Columns(2, 9), Columns(0, 1), Columns(0, 7))
-            .map { columns -> columns to sheet.count { row ->
-                isItem(text(row.getCell(columns.name)), text(row.getCell(columns.number)))
-            } }
-            .filter { it.second > 0 }
-            .maxByOrNull { it.second }?.first
+        return null
     }
-
-    private fun isItem(name: String, number: String): Boolean =
-        name.any { it.isLetter() } && number.isNotEmpty() &&
-            !name.startsWith("Итого", ignoreCase = true) &&
-            !name.startsWith("Всего", ignoreCase = true) &&
-            !number.equals("Инвентарный номер", ignoreCase = true)
-
-    private fun text(cell: Cell?): String = formatter.formatCellValue(cell).trim()
+    private fun text(cell: Cell?): String {
+        // Выгрузка 1С обозначает отсутствие значения как <c t="e"/> без <v>.
+        // Это не настоящая ошибка Excel (#N/A и др. содержат значение).
+        if (cell is org.apache.poi.xssf.usermodel.XSSFCell &&
+            cell.cellType == CellType.ERROR && cell.rawValue == null) return ""
+        return formatter.formatCellValue(cell).trim()
+    }
 
     private fun identifier(cell: Cell): String {
         val type = if (cell.cellType == CellType.FORMULA) cell.cachedFormulaResultType else cell.cellType
         if (type == CellType.STRING) return cell.stringCellValue.trim()
         require(type == CellType.NUMERIC && !DateUtil.isCellDateFormatted(cell)) {
-            "Ячейка ${cell.address}: инвентарный номер должен быть текстом или целым числом"
+            "Ячейка ${cell.address}: идентификатор должен быть текстом или целым числом"
         }
         val value = cell.numericCellValue
         require(value.isFinite() && value >= 0 && value % 1.0 == 0.0 && value < 1e15) {

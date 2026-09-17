@@ -1,268 +1,110 @@
 package com.yourname.inventoryapp
 
-import android.app.AlertDialog
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
-import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
-import com.yourname.inventory.data.InventoryItem  
 import com.yourname.inventory.data.InventoryViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.yourname.inventory.data.InventoryExporter
 
 class MainActivity : AppCompatActivity() {
     private lateinit var viewModel: InventoryViewModel
-    private lateinit var statsTextView: TextView
-    
-    companion object {
-        private const val REQUEST_CODE_PICK_CSV = 1003
-        private const val REQUEST_CODE_PICK_EXCEL = 1004
-        private const val TAG = "MainActivity"
+    private var importDialog: AlertDialog? = null
+    private var exportSelection = InventoryExporter.Selection.BOTH
+    private val importFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.importFile(uri)
     }
-
+    private val exportFile = registerForActivityResult(ActivityResultContracts.CreateDocument(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) { uri ->
+        if (uri != null) viewModel.export(uri, exportSelection)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        
-        Log.d(TAG, "=== MainActivity СТАРТУЕТ ===")
-
-        // Инициализация ViewModel
         viewModel = ViewModelProvider(this)[InventoryViewModel::class.java]
-        
-        // Находим элементы интерфейса
-        statsTextView = findViewById(R.id.statsTextView)
-        val loadButton = findViewById<Button>(R.id.button)
-        val listButton = findViewById<Button>(R.id.listButton)
-        val scanButton = findViewById<Button>(R.id.scanButton)
-        val importButton = findViewById<Button>(R.id.importButton)
-
-        val scannedListButton = findViewById<Button>(R.id.scannedListButton)
-        // ★★★★ ПРАВИЛЬНЫЙ ОБРАБОТЧИК ★★★★
-        scannedListButton.setOnClickListener {
-            // Всегда открываем ScannedItemsActivity
-            // Проверка на пустоту будет внутри самой активности
-            val intent = Intent(this, ScannedItemsActivity::class.java)
-            startActivity(intent)
+        exportSelection = savedInstanceState?.getString("exportSelection")?.let {
+            InventoryExporter.Selection.valueOf(it)
+        } ?: InventoryExporter.Selection.BOTH
+        viewModel.allItems.observe(this) { items ->
+            val found = items.count { it.scanned }
+            findViewById<TextView>(R.id.statsTextView).text =
+                "Всего: ${items.size}\nНайдено: $found\nОсталось: ${items.size - found}"
         }
-
-        // ★★★★ ДОПОЛНИТЕЛЬНО: Наблюдение за количеством отсканированных ★★★★
-        // Можно добавить для информативности
-        viewModel.scannedItems.observe(this) { items ->
-            val scannedCount = items?.size ?: 0
-            Log.d("MainActivity", "Отсканировано предметов: $scannedCount")
-            
-            // Можно менять текст кнопки динамически
-            scannedListButton.text = if (scannedCount > 0) {
-                "📋 Список найденного ($scannedCount)"
-            } else {
-                "📋 Список найденного"
+        viewModel.hasLegacyItems.observe(this) { legacy ->
+            findViewById<TextView>(R.id.migrationNotice).apply {
+                visibility = if (legacy) android.view.View.VISIBLE else android.view.View.GONE
+                text = "Обновлён формат учёта. Загрузите Excel со столбцом «Штрихкод». Отметки старой версии переносятся для однозначно совпавших предметов."
             }
         }
-        
-        // Наблюдаем за статистикой и обновляем TextView
-        viewModel.stats.observe(this) { stats ->
-            updateStats(stats)
+        viewModel.message.observe(this) { message ->
+            if (message != null) {
+                findViewById<TextView>(R.id.operationStatus).text = message
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                viewModel.message.value = null
+            }
         }
-        
+        val actions = listOf(R.id.importButton, R.id.resetButton, R.id.exportButton, R.id.scanButton)
+        viewModel.busy.observe(this) { busy ->
+            actions.forEach { findViewById<Button>(it).isEnabled = !busy }
+            findViewById<android.widget.ProgressBar>(R.id.progress).visibility =
+                if (busy) android.view.View.VISIBLE else android.view.View.GONE
+        }
         viewModel.pendingImport.observe(this) { result ->
+            importDialog?.dismiss()
+            importDialog = null
             if (result != null) {
-                val warnings = if (result.warnings.isEmpty()) "" else
-                    "\n\nНе будут импортированы ${result.warnings.size} строк:\n" +
-                        result.warnings.take(10).joinToString("\n\n") +
-                        if (result.warnings.size > 10) "\n…и ещё ${result.warnings.size - 10}" else ""
-                AlertDialog.Builder(this)
-                    .setTitle("Найдено предметов: ${result.items.size}")
-                    .setMessage("Лист: ${result.sheetName}\n\nОбновить и добавить предметы или заменить весь список? При замене удаляются предметы, отсутствующие среди импортируемых записей, включая пропущенные проблемные строки. Для совпавших номеров сохраняются отметки и привязки.$warnings")
+                val warnings = result.warnings.take(5).joinToString("\n")
+                importDialog = AlertDialog.Builder(this)
+                    .setTitle("Импорт: ${result.items.size} предметов")
+                    .setMessage("Лист: ${result.sheetName}\nБез штрихкода пропущено: ${result.skippedWithoutBarcode}\nБез инвентарного номера: ${result.withoutInventoryNumber}\nПовторных строк: ${result.duplicateRows}\nОшибок: ${result.warnings.size}\n$warnings\n\nОбновление сохраняет остальные предметы. Замена удаляет отсутствующие в импортируемом списке. Отметки найденного сохраняются по штрихкоду.")
                     .setPositiveButton("Обновить / добавить") { _, _ -> viewModel.confirmPendingImport(false) }
                     .setNeutralButton("Заменить список") { _, _ -> viewModel.confirmPendingImport(true) }
                     .setNegativeButton("Отмена") { _, _ -> viewModel.cancelPendingImport() }
-                    .setOnCancelListener { viewModel.cancelPendingImport() }
-                    .show()
+                    .setOnCancelListener { viewModel.cancelPendingImport() }.show()
             }
         }
-
-        // Наблюдение за статусом импорта
-        viewModel.importStatus.observe(this) { status ->
-            Log.d(TAG, "Статус импорта: $status")
-            Toast.makeText(this, status, Toast.LENGTH_LONG).show()
+        findViewById<Button>(R.id.importButton).setOnClickListener {
+            importFile.launch(arrayOf("application/vnd.ms-excel",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
         }
-        
-        // Обработчик кнопки "Загрузить тестовые данные"
-        loadButton.setOnClickListener {
-            loadTestData()
-        }
-        
-        // Обработчик кнопки "Список предметов"
-        listButton.setOnClickListener {
-            // val intent = Intent(this, ItemsListActivity::class.java)
-            // startActivity(intent)
-            
-            // ★★★★ ТЕСТОВЫЙ ПЕРЕХОД ★★★★
-            try {
-                val intent = Intent(this, ItemsListActivity::class.java)
-                startActivity(intent)
-            } catch (e: Exception) {
-                Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
-                Log.e(TAG, "Ошибка при запуске ItemsListActivity", e)
+        fun list(button: Int, filter: String) {
+            findViewById<Button>(button).setOnClickListener {
+                startActivity(Intent(this, ItemsListActivity::class.java).putExtra("filter", filter))
             }
         }
-        
-        // Обработчик кнопки "Сканировать"
-        scanButton.setOnClickListener {
-            val intent = Intent(this, ScanActivity::class.java)
-            startActivity(intent)
+        list(R.id.listButton, "all")
+        list(R.id.scannedListButton, "found")
+        list(R.id.remainingListButton, "remaining")
+        findViewById<Button>(R.id.scanButton).setOnClickListener {
+            startActivity(Intent(this, ScanActivity::class.java))
         }
-
-        // Обработчик кнопки "Импорт"
-        importButton.setOnClickListener {
-            showImportDialog()
+        findViewById<Button>(R.id.resetButton).setOnClickListener {
+            AlertDialog.Builder(this).setTitle("Очистить базу данных?")
+                .setMessage("Будут удалены все предметы, отметки найденного и архив старой версии. Экспортированные файлы сохранятся.")
+                .setPositiveButton("Очистить") { _, _ -> viewModel.clearDatabase() }
+                .setNegativeButton("Отмена", null).show()
         }
-        
-        Log.d(TAG, "MainActivity инициализирован")
-    }
-    
-    // Показать диалог выбора типа импорта
-    private fun showImportDialog() {
-        val items = arrayOf("CSV файл", "Excel файл (XLS/XLSX)")
-        
-        AlertDialog.Builder(this)
-            .setTitle("Выберите тип файла")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> importCSV()   // CSV файл
-                    1 -> importExcel() // Excel файл
-                }
-            }
-            .setNegativeButton("Отмена", null)
-            .show()
-    }
-    
-    private fun importCSV() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                "text/csv",
-                "text/comma-separated-values", 
-                "text/plain"
-            ))
-        }
-        startActivityForResult(intent, REQUEST_CODE_PICK_CSV)
-    }
-    
-    private fun importExcel() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
-                "application/vnd.ms-excel",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "application/vnd.oasis.opendocument.spreadsheet"
-            ))
-        }
-        startActivityForResult(intent, REQUEST_CODE_PICK_EXCEL)
-    }
-    
-    // Обновление статистики на экране
-    private fun updateStats(stats: InventoryViewModel.InventoryStats) {
-        statsTextView.text = "Всего: ${stats.total}\nНайдено: ${stats.found}\nОсталось: ${stats.remaining}"
-    }
-    
-    // ★★★★ ИСПРАВЛЕННАЯ ЗАГРУЗКА ТЕСТОВЫХ ДАННЫХ ★★★★
-    private fun loadTestData() {
-        Log.d(TAG, "Запуск очистки базы данных")
-        
-        // Используем новую функцию clearDatabase()
-        viewModel.clearDatabase()
-        
-        // Показываем уведомление пользователю
-        Toast.makeText(
-            this,
-            "✅ База данных очищена. Готово к импорту.",
-            Toast.LENGTH_LONG
-        ).show()
-        
-        // ★★★★ ОПЦИОНАЛЬНО: Можно сразу обновить текст статистики ★★★★
-        statsTextView.text = """
-            📋 ИНСТРУКЦИЯ:
-            
-            1. Нажмите "Импорт" для загрузки Excel файла
-            2. Выберите ведомость 1С (.xls или .xlsx)
-            3. Данные появятся в статистике
-            4. Используйте "Сканировать" для инвентаризации
-            
-            Загружено предметов: 0
-        """.trimIndent()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Обновляем статистику при возвращении на экран
-        viewModel.updateStats()
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        Log.d(TAG, "onActivityResult: requestCode=$requestCode, resultCode=$resultCode")
-        
-        super.onActivityResult(requestCode, resultCode, data)
-        
-        if (resultCode == RESULT_OK) {
-            data?.data?.let { uri ->
-                // Получаем имя файла
-                val fileName = getFileNameFromUri(uri)
-                Log.d(TAG, "Выбран файл: $fileName, URI: $uri")
-                
-                when (requestCode) {
-                    REQUEST_CODE_PICK_CSV -> {
-                        Log.d(TAG, "=== ИМПОРТ CSV ===")
-                        viewModel.importFile(uri, fileName)
+        findViewById<Button>(R.id.exportButton).setOnClickListener {
+            AlertDialog.Builder(this).setTitle("Экспорт данных")
+                .setItems(arrayOf("Найденные предметы", "Оставшиеся предметы", "Оба списка — отдельные листы")) { _, index ->
+                    exportSelection = InventoryExporter.Selection.values()[index]
+                    val name = when (exportSelection) {
+                        InventoryExporter.Selection.FOUND -> "Найденные"
+                        InventoryExporter.Selection.REMAINING -> "Оставшиеся"
+                        InventoryExporter.Selection.BOTH -> "Инвентаризация"
                     }
-                    REQUEST_CODE_PICK_EXCEL -> {
-                        Log.d(TAG, "=== ИМПОРТ EXCEL ===")
-                        viewModel.importFile(uri, fileName)
-                    }
-                    else -> {
-                        Log.w(TAG, "Неизвестный requestCode: $requestCode")
-                        Toast.makeText(this, "❌ Неизвестный тип файла", Toast.LENGTH_LONG).show()
-                    }
-                }
-            } ?: run {
-                Log.w(TAG, "URI пустой")
-                Toast.makeText(this, "❌ Не выбран файл", Toast.LENGTH_LONG).show()
-            }
-        } else {
-            Log.d(TAG, "Отмена выбора файла")
+                    exportFile.launch("$name.xlsx")
+                }.setNegativeButton("Отмена", null).show()
         }
     }
-    
-    // Метод для получения имени файла
-    private fun getFileNameFromUri(uri: Uri): String {
-        return try {
-            when (uri.scheme) {
-                "content" -> {
-                    contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (nameIndex != -1 && cursor.moveToFirst()) {
-                            cursor.getString(nameIndex) ?: "unknown_file"
-                        } else {
-                            "unknown_file"
-                        }
-                    } ?: "unknown_file"
-                }
-                "file" -> uri.lastPathSegment ?: "unknown_file"
-                else -> "unknown_file"
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Ошибка получения имени файла: ${e.message}")
-            "unknown_file"
-        }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("exportSelection", exportSelection.name)
+        super.onSaveInstanceState(outState)
     }
+    override fun onDestroy() { importDialog?.dismiss(); super.onDestroy() }
 }
