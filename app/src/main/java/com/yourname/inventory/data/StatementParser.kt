@@ -61,7 +61,7 @@ class StatementParser {
         // Выгрузка 1С обозначает отсутствие значения как <c t="e"/> без <v>.
         // Это не настоящая ошибка Excel (#N/A и др. содержат значение).
         if (cell is org.apache.poi.xssf.usermodel.XSSFCell &&
-            cell.cellType != CellType.FORMULA && cell.rawValue == null) return ""
+            cell.cellType == CellType.ERROR && cell.rawValue == null) return ""
         return formatter.formatCellValue(cell).trim()
     }
 

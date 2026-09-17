@@ -51,6 +51,18 @@ class StatementParserTest {
             assertEquals(2, result.items.count { it.inventoryNumber == "00012" })
         }
     }
+    @Test fun inlineStringsAreNotTreatedAsEmptyCells() {
+        XSSFWorkbook().use { workbook ->
+            fixture(workbook)
+            val cell = workbook.getSheetAt(0).getRow(9).getCell(3)
+            cell.ctCell.unsetV()
+            cell.ctCell.t = org.openxmlformats.schemas.spreadsheetml.x2006.main.STCellType.INLINE_STR
+            cell.ctCell.addNewIs().t = "2000000219448"
+            val result = StatementParser().parseReport(workbook)
+            assertEquals(5, result.items.size)
+            assertEquals("2000000219448", result.items.first().barcode)
+        }
+    }
     @Test fun oneCEmptyErrorCellsAreMissingValues() {
         XSSFWorkbook().use { workbook ->
             fixture(workbook)
