@@ -1,56 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp">
-
-    <TextView
-        android:id="@+id/statsTextView"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Всего: 0\nНайдено: 0\nОсталось: 0"
-        android:textSize="18sp"
-        android:background="#f0f0f0"
-        android:padding="8dp"
-        android:layout_marginBottom="16dp"/>
-
-    <Button
-        android:id="@+id/button"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Сброс данных"
-        android:layout_marginBottom="8dp"/>
-
-    <Button
-        android:id="@+id/importButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Импорт из файла"
-        android:layout_marginBottom="8dp"/>
-
-    <Button
-        android:id="@+id/listButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Список предметов"
-        android:layout_marginBottom="8dp"/>
-
-    <Button
-        android:id="@+id/scanButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Сканировать код"
-        android:layout_marginBottom="8dp"/>
-
-    <!-- ИСПРАВЛЕННАЯ кнопка для LinearLayout -->
-    <Button
-        android:id="@+id/scannedListButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="📋 Список найденного"
-        android:textSize="16sp"
-        android:padding="12dp"
-        android:layout_marginTop="8dp"/>
-
-</LinearLayout>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
+<TextView android:id="@+id/statsTextView" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Всего: 0&#10;Найдено: 0&#10;Осталось: 0" android:textSize="22sp" android:paddingBottom="16dp" />
+<TextView android:id="@+id/migrationNotice" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:paddingBottom="12dp" />
+<Button android:id="@+id/importButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Импорт из файла" android:textAllCaps="false" />
+<Button android:id="@+id/listButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Список предметов" android:textAllCaps="false" />
+<Button android:id="@+id/scannedListButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Список найденных" android:textAllCaps="false" />
+<Button android:id="@+id/remainingListButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Список оставшихся" android:textAllCaps="false" />
+<Button android:id="@+id/resetButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Сброс данных" android:textAllCaps="false" />
+<Button android:id="@+id/exportButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Экспорт данных" android:textAllCaps="false" />
+<Button android:id="@+id/scanButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="52dp" android:text="Сканировать код" android:textAllCaps="false" />
+<ProgressBar android:id="@+id/progress" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center" android:visibility="gone" />
+<TextView android:id="@+id/operationStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="12dp" android:accessibilityLiveRegion="polite" />
+</LinearLayout></ScrollView>

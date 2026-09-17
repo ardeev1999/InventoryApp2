@@ -39,7 +39,9 @@ class BarcodeDecodingTest {
     fun retailCodesRetainTheirEncodedDigits() {
         assertDecodes(BarcodeFormat.EAN_8, "12345670")
         assertDecodes(BarcodeFormat.EAN_13, "5901234123457")
-        assertDecodes(BarcodeFormat.UPC_A, "012345678905")
+        assertDecodes(BarcodeFormat.EAN_13, "0012345678905")
+        assertDecodes(BarcodeFormat.EAN_13, "2000000219448")
+        assertDecodes(BarcodeFormat.QR_CODE, "2000000219448")
         assertDecodes(BarcodeFormat.UPC_E, "01234565")
         // A/B — служебные start/stop-символы Codabar, не часть номера.
         assertDecodes(BarcodeFormat.CODABAR, "A0012B", "0012")
